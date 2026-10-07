@@ -1,0 +1,81 @@
+:root {
+  // font
+  --font-heading: "", sans-serif;
+  --font-body: "", sans-serif;
+  // color
+  --color-black: #000000;
+  --color-white: #ffffff;
+  //spacing
+  --space-8: 8px;
+  --space-16: 16px;
+  --space-24: 24px;
+  --space-32: 32px;
+  --space-40: 40px;
+  --space-48: 48px;
+  --space-56: 56px;
+  --space-64: 64px;
+  --space-72: 72px;
+  --space-80: 80px;
+  --spacing-padding: 120px 40px;
+}
+@media (max-width: 991px) {
+  :root {
+    // spacing mobile
+    --space-8: 8px;
+    --space-16: 8px;
+    --space-24: 16px;
+    --space-32: 24px;
+    --space-40: 32px;
+    --space-48: 40px;
+    --space-56: 48px;
+    --space-64: 56px;
+    --space-72: 64px;
+    --space-80: 72px;
+    --spacing-padding: 64px 16px;
+  }
+}
+// font variable
+// color variable
+.color-black {
+  color: var(--color-black);
+}
+.color-white {
+  color: var(--color-white);
+}
+.limit-width {
+  max-width: 1440px;
+  width: 100%;
+  margin: 0 auto;
+}
+@media (min-width: 1024px) {
+  .limit-11-col {
+    max-width: calc(calc(11 / 12) * 100%);
+    width: 100%;
+    margin: 0 auto;
+  }
+  .limit-10-col {
+    max-width: calc(calc(10 / 12) * 100%);
+    width: 100%;
+    margin: 0 auto;
+  }
+  .limit-9-col {
+    max-width: calc(calc(9 / 12) * 100%);
+    width: 100%;
+    margin: 0 auto;
+  }
+  .limit-8-col {
+    max-width: calc(calc(8 / 12) * 100%);
+    width: 100%;
+    margin: 0 auto;
+  }
+  .limit-7-col {
+    max-width: calc(calc(7 / 12) * 100%);
+    width: 100%;
+    margin: 0 auto;
+  }
+  .limit-6-col {
+    max-width: calc(calc(6 / 12) * 100%);
+    width: 100%;
+    margin: 0 auto;
+  }
+}

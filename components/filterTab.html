@@ -1,0 +1,48 @@
+<!-- default -->
+<section>
+  <div class="filter-section">
+    <div class="filter-list-button d-flex">
+      <div class="filter-button active" data-type="all">All</div>
+      <div class="filter-button" data-type="type-1">Type 1</div>
+      <div class="filter-button" data-type="type-2">Type 2</div>
+      <div class="filter-button" data-type="type-3">Type 3</div>
+      <div class="filter-button" data-type="type-4">Type 4</div>
+    </div>
+  </div>
+  <div class="filter-section-result">
+    <div class="filter-item type-1 type-2">
+      <div class="box box-1"></div>
+    </div>
+    <div class="filter-item type-2">
+      <div class="box box-2"></div>
+    </div>
+    <div class="filter-item type-3">
+      <div class="box"></div>
+    </div>
+    <div class="filter-item type-1">
+      <div class="box"></div>
+    </div>
+    <div class="filter-item type-4">
+      <div class="box box-2"></div>
+    </div>
+  </div>
+</section>
+<!-- html -->
+<!-- Cách 1: Result bên trong section -->
+
+<div class="filter-section">
+  <div class="filter-list-button">...</div>
+  <div class="filter-section-result">...</div>
+</div>
+
+<!-- Cách 2: Result là sibling -->
+<div class="filter-section">
+  <div class="filter-list-button">...</div>
+</div>
+<div class="filter-section-result">...</div>
+
+<!-- Cách 3: Result ở bất kỳ đâu (dùng data-target) -->
+<div class="filter-section" data-target="#myCustomResult">
+  <div class="filter-list-button">...</div>
+</div>
+<div id="myCustomResult" class="filter-section-result">...</div>

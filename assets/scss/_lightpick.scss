@@ -1,0 +1,57 @@
+.lightpick {
+  --color-stroke: #ccc;
+  --color-bg: #fff;
+  --color-active-is-today: #0f0f0f;
+  --color-active-is-today-opacity: rgba(15, 15, 15, 0.7);
+  .lightpick__days {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 1px;
+    background-color: var(--color-stroke);
+    border: 1px solid var(--color-stroke);
+  }
+  .lightpick__day {
+    background-color: var(--color-bg);
+    &.is-today {
+      background-image: none;
+      background-color: var(--color-active-is-today);
+      color: var(--color-bg);
+    }
+  }
+  .lightpick__day.is-end-date,
+  .lightpick__day.is-end-date:hover,
+  .lightpick__day.is-start-date,
+  .lightpick__day.is-start-date:hover {
+    background-image: none;
+    background-color: var(--color-active-is-today);
+    color: var(--color-bg);
+    border-radius: none;
+  }
+  .lightpick__day:not(.is-disabled):hover {
+    background-image: none;
+    background-color: var(--color-active-is-today-opacity);
+    color: var(--color-bg);
+  }
+  .lightpick__month-title,
+  .lightpick__month-title > .lightpick__select-months {
+    margin-left: 0;
+    padding-left: 0;
+
+    border-radius: 0;
+    direction: ltr;
+    text-align: left;
+    width: max-content;
+  }
+  .lightpick__days-of-the-week {
+    margin-bottom: 8px;
+    margin-top: 8px;
+  }
+  .lightpick__day.is-disabled {
+    text-decoration: line-through;
+  }
+  .lightpick__days {
+    div {
+      background-color: var(--color-bg);
+    }
+  }
+}
