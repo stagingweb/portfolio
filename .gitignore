@@ -6,6 +6,8 @@ logs/
 *.log
 npm-debug.log*
 
+AGENTS.md
+
 # Optional npm cache directory
 .npm
 

@@ -4,24 +4,33 @@ import {
   createFilterTab,
   getDateLightPick,
 } from "../../main/js/global.min.js";
+import {
+  destroyMotion,
+  initMotion,
+  refreshMotion,
+} from "../../main/js/motion.min.js";
+import {
+  destroyHomeHero,
+  startHomeExperience,
+} from "../../main/js/home.min.js";
 
-const $ = jQuery;
-
-const lenis = new Lenis();
-lenis.on("scroll", ScrollTrigger.update);
-gsap.ticker.add((time) => lenis.raf(time * 1000));
-gsap.ticker.lagSmoothing(0);
+let projectSwiper = null;
+let sectionVisibilityObserver = null;
 
 function initParallaxSwiper(swiperEl, options = {}) {
-  const interleaveOffset = 0.85;
+  const interleaveOffset = Number.isFinite(options.interleaveOffset)
+    ? options.interleaveOffset
+    : 0.85;
+  const swiperOptions = { ...options };
+  delete swiperOptions.interleaveOffset;
 
   return new Swiper(swiperEl, {
     slidesPerView: 1,
-    loop: true,
-    speed: 1500,
+    loop: false,
+    speed: 1000,
     watchSlidesProgress: true,
     grabCursor: true,
-    ...options,
+    ...swiperOptions,
     on: {
       progress(swiper) {
         swiper.slides.forEach((slide) => {
@@ -60,42 +69,109 @@ function initSwiper() {
   if (!containerSwiperEl) return;
 
   const swiperEl = containerSwiperEl.querySelector(".swiper-el-parallax");
-  if (!swiperEl) return;
+  if (!swiperEl || !window.Swiper) return;
+  if (swiperEl.swiper) {
+    projectSwiper = swiperEl.swiper;
+    return projectSwiper;
+  }
 
-  const swiperParallax = initParallaxSwiper(swiperEl, {
+  projectSwiper = initParallaxSwiper(swiperEl, {
+    interleaveOffset: 0.25,
+    spaceBetween: 24,
+    breakpoints: {
+      769: { spaceBetween: 50 },
+    },
     navigation: {
       nextEl: containerSwiperEl.querySelector(".swiper-button-next"),
       prevEl: containerSwiperEl.querySelector(".swiper-button-prev"),
     },
+    pagination: {
+      el: containerSwiperEl.querySelector(".swiper-pagination"),
+      clickable: true,
+    },
+    keyboard: {
+      enabled: true,
+      onlyInViewport: true,
+    },
   });
+
+  return projectSwiper;
+}
+
+function initSectionNavigation() {
+  const sections = [
+    { id: "top", element: document.querySelector(".page-home"), link: document.querySelector('.site-nav__link[href="#top"]') },
+    { id: "projects", element: document.querySelector(".work-showcase"), link: document.querySelector('.site-nav__link[href="#projects"]') },
+  ].filter((section) => section.element && section.link);
+  if (!sections.length || !window.IntersectionObserver) return;
+
+  sectionVisibilityObserver?.disconnect();
+  const visibility = new Map();
+
+  sectionVisibilityObserver = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => visibility.set(entry.target, entry));
+    const current = sections
+      .map((section) => ({ ...section, entry: visibility.get(section.element) }))
+      .filter(({ entry }) => entry?.isIntersecting)
+      .sort((a, b) => b.entry.intersectionRatio - a.entry.intersectionRatio)[0];
+    if (!current) return;
+
+    sections.forEach(({ link }) => {
+      if (link === current.link) link.setAttribute("aria-current", "page");
+      else link.removeAttribute("aria-current");
+    });
+    document.body.classList.toggle("is-work-visible", current.id === "projects");
+  }, { threshold: [0, 0.2, 0.5] });
+
+  sections.forEach(({ element }) => sectionVisibilityObserver.observe(element));
+}
+
+function destroyProjects() {
+  sectionVisibilityObserver?.disconnect();
+  sectionVisibilityObserver = null;
+  projectSwiper?.destroy(true, true);
+  projectSwiper = null;
+  document.body.classList.remove("is-work-visible");
 }
 
 function init() {
-  gsap.registerPlugin(ScrollTrigger);
   customDropdown();
   createFilterTab();
-  getDateLightPick();
+  if (document.getElementById("datepicker")) getDateLightPick();
+  initMotion();
+  startHomeExperience();
 }
 
 document.addEventListener("DOMContentLoaded", () => {
   init();
-  initSwiper();
+  Promise.resolve(window.siteComponentsReady)
+    .then(() => {
+      initSwiper();
+      initSectionNavigation();
+      refreshMotion();
+    })
+    .catch((error) => console.error(error));
 });
 
-let isLinkClicked = false;
-
-document.addEventListener("click", (e) => {
-  const link = e.target.closest("a");
-  if (
-    link?.href &&
-    !link.href.startsWith("#") &&
-    !link.href.startsWith("javascript:")
-  ) {
-    isLinkClicked = true;
+window.PortfolioMotion = Object.freeze({
+  init: initMotion,
+  initHero: startHomeExperience,
+  refresh: refreshMotion,
+  destroy: () => {
+    destroyHomeHero();
+    destroyMotion();
+  },
+});
+window.addEventListener("pagehide", () => {
+  destroyHomeHero();
+  destroyMotion();
+  destroyProjects();
+});
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted) {
+    initMotion();
+    startHomeExperience();
+    initSwiper();
+    initSectionNavigation();
   }
-});
-
-window.addEventListener("beforeunload", () => {
-  if (!isLinkClicked) window.scrollTo(0, 0);
-  isLinkClicked = false;
 });

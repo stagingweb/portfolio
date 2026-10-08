@@ -1,10 +1,30 @@
 :root {
   // font
-  --font-heading: "", sans-serif;
-  --font-body: "", sans-serif;
+  --font-script: "Bonheur Royale", "Brush Script MT", cursive;
+  --font-display: "Bebas Neue", Impact, sans-serif;
+  --font-heading: var(--font-display);
+  --font-body: "JetBrains Mono", "Courier New", monospace;
   // color
   --color-black: #000000;
   --color-white: #ffffff;
+  --color-muted: #b9b9b9;
+  --color-line: rgba(32, 67, 75, 0.73);
+  --color-accent-pink: #f51887;
+  --color-accent-violet: #8916ee;
+  // layout
+  --container-max: 1820px;
+  --page-padding-x: 48px;
+  --page-padding-y: 24px;
+  --grid-gap: 20px;
+  // typography
+  --text-small: 12px;
+  --text-body: 13px;
+  --text-label: 16px;
+  --text-section: 24px;
+  // breakpoints are repeated as media-query values where CSS variables
+  // cannot be used by the Sass compiler.
+  --ease-standard: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   //spacing
   --space-8: 8px;
   --space-16: 16px;
@@ -32,6 +52,8 @@
     --space-72: 64px;
     --space-80: 72px;
     --spacing-padding: 64px 16px;
+    --page-padding-x: 24px;
+    --page-padding-y: 16px;
   }
 }
 // font variable

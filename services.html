@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Design and development services for thoughtful digital experiences."
+    />
+    <meta name="theme-color" content="#000000" />
+    <title>Services — Creative Developer</title>
+    <link rel="icon" href="./assets/images/favicon.ico" type="image/x-icon" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Bonheur+Royale&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./assets/main/css/style.min.css" />
+  </head>
+
+  <body class="is-services-visible">
+    <header id="header" class="site-header" aria-label="Site header"></header>
+
+    <main
+      id="services"
+      class="services-section"
+      aria-labelledby="services-title"
+    ></main>
+
+    <script>
+      Promise.all([
+        fetch("./components/header.html").then((response) => {
+          if (!response.ok) throw new Error("Unable to load the site header.");
+          return response.text();
+        }),
+        fetch("./components/services.html").then((response) => {
+          if (!response.ok) throw new Error("Unable to load services.");
+          return response.text();
+        }),
+      ])
+        .then(([header, services]) => {
+          document.getElementById("header").innerHTML = header;
+          document.getElementById("services").innerHTML = services;
+
+          const homeLink = document.querySelector('.site-nav__link[href="#top"]');
+          const projectsLink = document.querySelector('.site-nav__link[href="#projects"]');
+          const servicesLink = document.querySelector('.site-nav__link[href="./services.html"]');
+          if (homeLink) homeLink.href = "./index.html#top";
+          if (projectsLink) projectsLink.href = "./index.html#projects";
+          homeLink?.removeAttribute("aria-current");
+          projectsLink?.removeAttribute("aria-current");
+          servicesLink?.setAttribute("aria-current", "page");
+        })
+        .catch((error) => console.error(error));
+    </script>
+  </body>
+</html>
