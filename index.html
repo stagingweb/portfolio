@@ -22,20 +22,15 @@
         window.__homeLoaderFallback = window.setTimeout(() => {
           const loader = document.querySelector(".site-loader");
           loader?.remove();
-          const scene = document.querySelector(".scene");
-          scene?.classList.remove("is-preloading");
-          const sphere = scene?.querySelector(".scene-sphere");
-          ["opacity", "visibility", "transform", "filter", "--sphere-fill-opacity", "--sphere-surface-opacity"]
-            .forEach((property) => sphere?.style.removeProperty(property));
           document.documentElement.classList.remove("motion-pending");
-        }, 2800);
+        }, 8000);
       })();
     </script>
     <link rel="icon" href="./assets/images/favicon.ico" type="image/x-icon" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Bonheur+Royale&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./assets/main/css/style.min.css" />
@@ -44,36 +39,50 @@
 
   <body>
     <div class="site-loader" aria-hidden="true">
+      <span class="site-loader__glow"></span>
       <svg class="site-loader__ring" viewBox="0 0 100 100" focusable="false">
-        <circle class="site-loader__track" cx="50" cy="50" r="49.3" />
         <circle
           class="site-loader__progress"
           cx="50"
           cy="50"
-          r="49.3"
-          stroke-dasharray="309.76 309.76"
-          stroke-dashoffset="309.76"
+          r="49.5"
+          stroke-dasharray="9999 9999"
+          stroke-dashoffset="9999"
           data-loader-progress
         />
       </svg>
     </div>
 
-    <div class="scene" aria-hidden="true">
-      <div class="scene-floor" data-hero-motion="floor"></div>
-      <div class="scene-sphere" data-hero-motion="sphere">
-        <div class="scene-sphere__surface"></div>
-      </div>
-      <div class="scene-reflection" data-hero-motion="reflection">
-        <div class="scene-reflection__sphere"></div>
-      </div>
-    </div>
+    <div class="scene" aria-hidden="true"></div>
 
     <header id="header" class="site-header" aria-label="Site header"></header>
 
     <main id="top" class="page-home">
       <section class="hero" aria-labelledby="hero-title">
+        <button
+          class="hero-globe-control"
+          type="button"
+          aria-label="Rotate globe: drag with a pointer or use the arrow keys"
+          hidden
+        ></button>
         <h1 id="hero-title" class="hero-title" data-hero-motion="title">
-          <span class="hero-title__line hero-title__line--script">Creative</span>
+          <span class="hero-title__line hero-title__line--script">
+            <span class="visually-hidden">Creative</span>
+            <svg class="hero-title__script-svg" viewBox="0 0 455 150" fill="none" aria-hidden="true" focusable="false">
+              <g class="hero-title__ink" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M130 37 C107 24 77 29 52 47 C27 65 17 94 32 108 C47 124 74 112 100 98 C113 91 120 85 128 80" />
+                <path d="M99 99 C112 91 119 76 124 71 C130 65 126 84 121 96 C136 78 148 73 158 80" />
+                <path d="M156 94 C176 91 190 79 184 74 C177 67 158 78 158 93 C158 107 174 107 193 95" />
+                <path d="M193 95 C205 88 215 73 225 74 C233 74 232 85 225 94 C218 103 208 107 205 100 C201 91 215 77 230 76 C222 97 230 105 246 95" />
+                <path d="M245 95 C258 89 266 65 275 41 C281 26 286 32 281 47 L269 88 C265 103 275 105 294 91" />
+                <path d="M250 61 C268 57 290 56 310 57" stroke-width="1.5" />
+                <path d="M294 91 C304 87 307 74 311 73 C314 72 309 84 305 92 C300 103 313 103 326 92" />
+                <path d="M319 52 L322 46" stroke-width="2.5" />
+                <path d="M326 92 C334 81 338 73 341 74 C343 78 334 96 342 100 C353 106 369 90 379 73" />
+                <path d="M378 93 C399 89 410 78 404 74 C397 68 379 78 379 94 C379 108 399 106 419 93 C432 85 441 83 449 83" />
+              </g>
+            </svg>
+          </span>
           <span class="hero-title__line hero-title__line--display">Developer.</span>
         </h1>
 
@@ -96,6 +105,8 @@
 
     <section id="projects" class="work-showcase" aria-label="Selected work"></section>
 
+    <section id="services" class="services-section" aria-labelledby="services-title"></section>
+
     <footer id="footer" class="site-footer" aria-label="Site information"></footer>
 
     <script>
@@ -112,11 +123,16 @@
           if (!response.ok) throw new Error("Unable to load the work showcase.");
           return response.text();
         }),
+        fetch("./components/services.html").then((response) => {
+          if (!response.ok) throw new Error("Unable to load services.");
+          return response.text();
+        }),
       ])
-        .then(([header, footer, projects]) => {
+        .then(([header, footer, projects, services]) => {
           document.getElementById("header").innerHTML = header;
           document.getElementById("footer").innerHTML = footer;
           document.getElementById("projects").innerHTML = projects;
+          document.getElementById("services").innerHTML = services;
         })
         .catch((error) => {
           console.error(error);
