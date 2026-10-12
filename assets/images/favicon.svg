@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">RYO</title>
+  <rect x="1" y="1" width="62" height="62" rx="11" fill="#050d1f" stroke="#385fa8" stroke-width="2"/>
+  <g fill="none" stroke="#edf3ff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9.5 43V21.5h9c5 0 8 2.6 8 6.6s-3 6.6-8 6.6h-9m10 0 7.5 8.3"/>
+    <path d="m29.5 21.5 7.7 11 7.7-11M37.2 32.5V43"/>
+  </g>
+  <ellipse cx="52" cy="32.25" rx="6.8" ry="10.8" fill="none" stroke="#5989ff" stroke-width="3.6"/>
+  <path d="M10 50h44" stroke="#5989ff" stroke-width="2" stroke-linecap="round"/>
+</svg>

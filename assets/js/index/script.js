@@ -6,7 +6,7 @@ import worldAtlas from "world-atlas/countries-110m.json";
 
 "use strict";
 
-// One full-bleed WebGL canvas paints the backdrop, floor shadow, and both sides of the globe.
+// One full-bleed WebGL canvas paints the drifting clouds, floor shadow, and both sides of the globe.
 const globeRuntime = {
   container: null,
   renderer: null,
@@ -15,9 +15,11 @@ const globeRuntime = {
   globe: null,
   rim: null,
   background: null,
+  cloudField: null,
   strokeMaterials: [],
   visual: null,
   draw: null,
+  invalidateLayout: null,
   baseRadius: 0,
   heroCenterX: 0,
   heroCenterY: 0,
@@ -28,8 +30,12 @@ const globeRuntime = {
   scrollHandler: null,
   observer: null,
   resizeObserver: null,
+  sectionResizeObserver: null,
   frame: 0,
   lastTime: 0,
+  lastPaint: 0,
+  needsDraw: false,
+  cloudTime: 0,
   inView: true,
   visibilityHandler: null,
   dragging: false,
@@ -81,7 +87,90 @@ function geoToGlobePosition(latitude, longitude, radius) {
   );
 }
 
-function makeHeroBackground() {
+function makeCloudField(renderer) {
+  // Bake the tileable floorplan-style cloud noise once; the backdrop only samples it each frame.
+  const size = 512;
+  const period = 16;
+  const target = new THREE.WebGLRenderTarget(size, size, {
+    wrapS: THREE.RepeatWrapping,
+    wrapT: THREE.RepeatWrapping,
+    minFilter: THREE.LinearMipmapLinearFilter,
+    magFilter: THREE.LinearFilter,
+    generateMipmaps: true,
+    depthBuffer: false,
+    stencilBuffer: false,
+  });
+  const material = new THREE.ShaderMaterial({
+    uniforms: { uPeriod: { value: period } },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = vec4(position.xy, 0.0, 1.0);
+      }
+    `,
+    fragmentShader: `
+      varying vec2 vUv;
+      uniform float uPeriod;
+
+      float hash21p(vec2 p, float period) {
+        p = mod(p, period);
+        vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+        p3 += dot(p3, p3.yzx + 33.33);
+        return fract((p3.x + p3.y) * p3.z);
+      }
+
+      float vnoisep(vec2 p, float period) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        float a = hash21p(i, period);
+        float b = hash21p(i + vec2(1.0, 0.0), period);
+        float c = hash21p(i + vec2(0.0, 1.0), period);
+        float d = hash21p(i + vec2(1.0, 1.0), period);
+        return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+      }
+
+      float fbmp(vec2 p, float period) {
+        float sum = 0.0;
+        float amp = 0.5;
+        for (int i = 0; i < 6; i++) {
+          sum += amp * vnoisep(p, period);
+          p *= 2.0;
+          period *= 2.0;
+          amp *= 0.5;
+        }
+        return sum;
+      }
+
+      void main() {
+        vec2 p = vUv * uPeriod;
+        vec2 warp = vec2(
+          fbmp(p * 0.5, uPeriod * 0.5),
+          fbmp(p * 0.5 + 4.7, uPeriod * 0.5)
+        );
+        float density = fbmp(p + warp * 1.7, uPeriod);
+        gl_FragColor = vec4(vec3(density), 1.0);
+      }
+    `,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const geometry = new THREE.PlaneGeometry(2, 2);
+  const mesh = new THREE.Mesh(geometry, material);
+  const scene = new THREE.Scene();
+  const camera = new THREE.Camera();
+  scene.add(mesh);
+  const previousTarget = renderer.getRenderTarget();
+  renderer.setRenderTarget(target);
+  renderer.render(scene, camera);
+  renderer.setRenderTarget(previousTarget);
+  geometry.dispose();
+  material.dispose();
+  return target;
+}
+
+function makeHeroBackground(cloudField) {
   const material = new THREE.ShaderMaterial({
     uniforms: {
       uResolution: { value: new THREE.Vector2(1, 1) },
@@ -89,6 +178,8 @@ function makeHeroBackground() {
       uFloorRadius: { value: 1 },
       uGlobeCenter: { value: new THREE.Vector2(0, 0) },
       uGlobeRadius: { value: 1 },
+      uCloudField: { value: cloudField },
+      uTime: { value: 0 },
       uReveal: { value: 0 },
     },
     vertexShader: `
@@ -102,6 +193,8 @@ function makeHeroBackground() {
       uniform float uFloorRadius;
       uniform vec2 uGlobeCenter;
       uniform float uGlobeRadius;
+      uniform sampler2D uCloudField;
+      uniform float uTime;
       uniform float uReveal;
       void main() {
         vec2 p = gl_FragCoord.xy;
@@ -112,14 +205,17 @@ function makeHeroBackground() {
           globeBottom + radius * 0.10,
           p.y
         );
-        float floorLight = exp(-pow((p.x - uFloorCenter.x) / (radius * 2.0), 2.0) * 1.8)
-          * exp(-pow((p.y - (globeBottom - radius * 0.42)) / (radius * 0.95), 2.0) * 1.7);
-        float sideLight = exp(-pow((p.x - (uFloorCenter.x - radius * 1.65)) / (radius * 0.86), 2.0) * 1.8)
-          + exp(-pow((p.x - (uFloorCenter.x + radius * 1.65)) / (radius * 0.86), 2.0) * 1.8);
-        sideLight *= exp(-pow((p.y - (globeBottom - radius * 0.32)) / (radius * 0.75), 2.0));
+        float floorEnvelope = exp(-pow((p.x - uFloorCenter.x) / (radius * 2.5), 2.0))
+          * exp(-pow((p.y - (globeBottom - radius * 0.42)) / (radius * 0.95), 2.0) * 1.5);
+        vec2 drift = vec2(uTime * 0.0022, 0.0);
+        float nearCloud = texture2D(uCloudField, p / (radius * 16.0) + drift + vec2(0.11, 0.33)).r;
+        float farCloud = texture2D(uCloudField, p / (radius * 25.0) - drift * 0.6 + vec2(0.61, 0.20)).r;
+        float wisps = texture2D(uCloudField, p / (radius * 11.0) + drift * 1.35 + vec2(0.38, 0.72)).r;
+        float cloudShape = smoothstep(0.48, 0.68, nearCloud) * 0.58
+          + smoothstep(0.52, 0.70, farCloud) * 0.34
+          + smoothstep(0.55, 0.72, wisps) * 0.18;
         vec3 color = vec3(0.001, 0.002, 0.003);
-        color += floorMask * (vec3(0.020, 0.030, 0.029) * floorLight
-          + vec3(0.010, 0.016, 0.015) * sideLight);
+        color += vec3(0.055, 0.086, 0.081) * cloudShape * floorEnvelope * floorMask;
 
         vec2 shadow = (p - vec2(uFloorCenter.x, uFloorCenter.y - uFloorRadius * 1.08))
           / vec2(uFloorRadius * 1.05, uFloorRadius * 0.22);
@@ -161,7 +257,8 @@ function initHeroGlobe() {
   const scene = new THREE.Scene();
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 2000);
   camera.position.z = 1000;
-  const background = makeHeroBackground();
+  const cloudField = makeCloudField(renderer);
+  const background = makeHeroBackground(cloudField.texture);
   scene.add(background);
 
   const globe = new THREE.Group();
@@ -194,7 +291,8 @@ function initHeroGlobe() {
   );
   scene.add(rim);
 
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  // A 2x full-viewport canvas shades four times as many pixels as 1x.
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
   renderer.domElement.setAttribute("aria-hidden", "true");
   container.appendChild(renderer.domElement);
   container.classList.add("is-webgl-ready");
@@ -204,6 +302,12 @@ function initHeroGlobe() {
   const markerFacingPosition = new THREE.Vector3();
   const projectSection = document.querySelector(".work-showcase");
   const serviceSection = document.querySelector(".services-section");
+  let sectionPositionsDirty = true;
+  let projectTop = Infinity;
+  let serviceTop = Infinity;
+  const sectionTop = (element) => element
+    ? element.getBoundingClientRect().top + (window.scrollY || document.documentElement.scrollTop || 0)
+    : Infinity;
   const easedProgress = (value) => {
     const t = THREE.MathUtils.clamp(value, 0, 1);
     return t * t * (3 - 2 * t);
@@ -212,9 +316,11 @@ function initHeroGlobe() {
     const { viewportWidth: width, viewportHeight: height } = globeRuntime;
     if (!width || !height) return;
     const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
-    const sectionTop = (element) => element ? element.getBoundingClientRect().top + scrollY : Infinity;
-    const projectTop = sectionTop(projectSection);
-    const serviceTop = sectionTop(serviceSection);
+    if (sectionPositionsDirty) {
+      projectTop = sectionTop(projectSection);
+      serviceTop = sectionTop(serviceSection);
+      sectionPositionsDirty = false;
+    }
     const projectStart = Math.max(0, projectTop - height * 0.75);
     const projectEnd = projectTop + height * 0.05;
     const projectProgress = easedProgress((scrollY - projectStart) / Math.max(projectEnd - projectStart, 1));
@@ -242,6 +348,7 @@ function initHeroGlobe() {
     vietnamMarker.visible = markerFacingPosition.z > 0.05;
     background.material.uniforms.uReveal.value = visual.reveal;
     const uniforms = background.material.uniforms;
+    uniforms.uTime.value = globeRuntime.cloudTime;
     const pixelRatio = renderer.getPixelRatio();
     uniforms.uGlobeCenter.value.set(centerX * pixelRatio, (height - centerY) * pixelRatio);
     uniforms.uGlobeRadius.value = radius * pixelRatio;
@@ -251,6 +358,8 @@ function initHeroGlobe() {
   const resize = () => {
     const { width, height } = container.getBoundingClientRect();
     if (!width || !height) return;
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
+    if (renderer.getPixelRatio() !== pixelRatio) renderer.setPixelRatio(pixelRatio);
     renderer.setSize(width, height, false);
     camera.left = -width / 2;
     camera.right = width / 2;
@@ -268,25 +377,44 @@ function initHeroGlobe() {
     globeRuntime.viewportWidth = width;
     globeRuntime.viewportHeight = height;
 
-    const pixelRatio = renderer.getPixelRatio();
     const uniforms = background.material.uniforms;
     uniforms.uResolution.value.set(width * pixelRatio, height * pixelRatio);
     uniforms.uFloorCenter.value.set(centerX * pixelRatio, (height - centerY) * pixelRatio);
     uniforms.uFloorRadius.value = radius * pixelRatio;
-    draw();
+    sectionPositionsDirty = true;
+    requestDraw();
+  };
+  const requestDraw = () => {
+    globeRuntime.needsDraw = true;
+    // Reduced-motion mode has no render loop, but must still follow scrolling.
+    if (!globeRuntime.frame && !document.hidden) {
+      draw();
+      globeRuntime.needsDraw = false;
+      globeRuntime.lastPaint = window.performance.now();
+    }
   };
   const stop = () => {
     window.cancelAnimationFrame(globeRuntime.frame);
     globeRuntime.frame = 0;
     globeRuntime.lastTime = 0;
+    globeRuntime.lastPaint = 0;
   };
   const render = (time) => {
     globeRuntime.frame = window.requestAnimationFrame(render);
+    if (globeRuntime.lastTime) {
+      globeRuntime.cloudTime += Math.min(time - globeRuntime.lastTime, 50) * 0.001;
+    }
     if (globeRuntime.lastTime && !globeRuntime.dragging && time - globeRuntime.lastInteraction > 1800) {
       globe.rotation.y += Math.min(time - globeRuntime.lastTime, 50) * 0.00006;
     }
     globeRuntime.lastTime = time;
-    draw();
+    // Keep the drifting cloud/globe at 30fps while idle. Scroll, drag, and
+    // loader updates invalidate the frame so they still paint at display rate.
+    if (globeRuntime.needsDraw || time - globeRuntime.lastPaint >= 1000 / 30) {
+      globeRuntime.needsDraw = false;
+      globeRuntime.lastPaint = time;
+      draw();
+    }
   };
   const syncAnimation = () => {
     if (document.hidden || !globeRuntime.inView || prefersReducedMotion()) {
@@ -303,12 +431,17 @@ function initHeroGlobe() {
   globeRuntime.globe = globe;
   globeRuntime.rim = rim;
   globeRuntime.background = background;
+  globeRuntime.cloudField = cloudField;
   globeRuntime.strokeMaterials = [gridMaterial, borderMaterial];
   globeRuntime.visual = visual;
-  globeRuntime.draw = draw;
+  globeRuntime.draw = requestDraw;
+  globeRuntime.invalidateLayout = () => {
+    sectionPositionsDirty = true;
+    requestDraw();
+  };
   globeRuntime.visibilityHandler = syncAnimation;
-  globeRuntime.scrollHandler = draw;
-  window.addEventListener("scroll", draw, { passive: true });
+  globeRuntime.scrollHandler = requestDraw;
+  window.addEventListener("scroll", requestDraw, { passive: true });
 
   if (control) {
     let activePointer = null;
@@ -346,7 +479,7 @@ function initHeroGlobe() {
       lastX = event.clientX;
       lastY = event.clientY;
       globeRuntime.lastInteraction = window.performance.now();
-      draw();
+      requestDraw();
     };
     const onKeyDown = (event) => {
       const rotation = {
@@ -358,7 +491,7 @@ function initHeroGlobe() {
       globe.rotation.x = THREE.MathUtils.clamp(globe.rotation.x + rotation[0], -1.25, 1.25);
       globe.rotation.y += rotation[1];
       globeRuntime.lastInteraction = window.performance.now();
-      draw();
+      requestDraw();
     };
 
     control.addEventListener("pointerdown", onPointerDown);
@@ -386,6 +519,12 @@ function initHeroGlobe() {
   if (window.ResizeObserver) {
     globeRuntime.resizeObserver = new ResizeObserver(resize);
     globeRuntime.resizeObserver.observe(container);
+    globeRuntime.sectionResizeObserver = new ResizeObserver(() => {
+      sectionPositionsDirty = true;
+      requestDraw();
+    });
+    if (projectSection) globeRuntime.sectionResizeObserver.observe(projectSection);
+    if (serviceSection) globeRuntime.sectionResizeObserver.observe(serviceSection);
   } else {
     window.addEventListener("resize", resize);
     globeRuntime.resizeObserver = { disconnect: () => window.removeEventListener("resize", resize) };
@@ -408,6 +547,7 @@ function destroyHeroGlobe() {
   globeRuntime.cleanupControl?.();
   globeRuntime.observer?.disconnect();
   globeRuntime.resizeObserver?.disconnect();
+  globeRuntime.sectionResizeObserver?.disconnect();
   document.removeEventListener("visibilitychange", globeRuntime.visibilityHandler);
   window.removeEventListener("scroll", globeRuntime.scrollHandler);
   globeRuntime.scene.traverse((object) => {
@@ -415,16 +555,19 @@ function destroyHeroGlobe() {
     if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose());
     else object.material?.dispose();
   });
+  globeRuntime.cloudField?.dispose();
   globeRuntime.renderer.dispose();
   globeRuntime.renderer.forceContextLoss();
   globeRuntime.renderer.domElement.remove();
   globeRuntime.container.classList.remove("is-webgl-ready");
   Object.assign(globeRuntime, {
     container: null, renderer: null, scene: null, camera: null, globe: null,
-    rim: null, background: null, strokeMaterials: [], visual: null, draw: null,
+    rim: null, background: null, cloudField: null, strokeMaterials: [], visual: null, draw: null,
+    invalidateLayout: null,
     baseRadius: 0, heroCenterX: 0, heroCenterY: 0, viewportWidth: 0, viewportHeight: 0,
     control: null, cleanupControl: null, scrollHandler: null,
-    observer: null, resizeObserver: null, frame: 0, lastTime: 0,
+    observer: null, resizeObserver: null, sectionResizeObserver: null,
+    frame: 0, lastTime: 0, lastPaint: 0, needsDraw: false, cloudTime: 0,
     inView: true, visibilityHandler: null, dragging: false, lastInteraction: 0,
   });
 }
@@ -966,26 +1109,25 @@ function createHeroTimeline(targets, creativeStrokes, conditions) {
     ? Math.min(0.06, writeDuration / strokeLengths.length)
     : 0;
   let developerStart = writeStart;
-  const introItems = targets.intro
-    ? Array.from(targets.intro.children).filter((element) =>
-        element.matches("p, .hero-cta"),
-      )
-    : [];
   const timeline = gsap.timeline({ paused: true });
 
-  if (targets.header) {
-    timeline.fromTo(targets.header,
-      { autoAlpha: 0, y: -6 },
-      {
-        autoAlpha: 1,
-        y: 0,
-        duration: mobile ? 0.55 : 0.68,
-        ease: "power2.out",
-        clearProps: "opacity,visibility,transform",
-      },
-      0,
-    );
-  }
+  const revealTargets = [
+    { element: targets.header, fromY: -26 },
+    { element: targets.footer, fromY: 26 },
+    ...Array.from(targets.intro?.children || [], (element) => ({ element, fromY: 26 })),
+  ];
+
+  revealTargets.forEach(({ element, fromY }) => {
+    if (!element) return;
+    gsap.set(element, { autoAlpha: 0, y: fromY });
+    timeline.to(element, {
+      autoAlpha: 1,
+      y: 0,
+      duration: 0.7,
+      ease: "power3.out",
+      clearProps: "opacity,visibility,transform",
+    }, 0);
+  });
 
   if (globeRuntime.visual && !heroMotion.globeRevealedByLoader) {
     timeline.fromTo(globeRuntime.visual,
@@ -1027,29 +1169,11 @@ function createHeroTimeline(targets, creativeStrokes, conditions) {
     timeline.to(targets.developer,
       {
         autoAlpha: 1,
-        duration: mobile ? 0.58 : 0.72,
+        duration: 0.7,
         ease: "power2.out",
         clearProps: "opacity,visibility",
       },
       developerStart,
-    );
-  }
-
-  if (introItems.length) {
-    timeline.fromTo(introItems,
-      {
-        y: mobile ? 10 : 16,
-        autoAlpha: 0,
-      },
-      {
-        y: 0,
-        autoAlpha: 1,
-        duration: mobile ? 0.55 : 0.68,
-        stagger: mobile ? 0.055 : 0.09,
-        ease: "power2.out",
-        clearProps: "opacity,visibility,transform",
-      },
-      developerStart + (mobile ? 0.38 : 0.48),
     );
   }
 
@@ -1277,6 +1401,7 @@ function initHomeHero() {
 
     const targets = {
       header: document.querySelector(".site-header"),
+      footer: document.querySelector(".site-footer"),
       creativeStrokes: Array.from(root.querySelectorAll(".hero-title__ink path")),
       developer: root.querySelector(".hero-title__line--display"),
       intro: root.querySelector(".hero-intro"),
@@ -1317,6 +1442,7 @@ function destroyHomeHero() {
 
 // Page setup
 let projectSwiper = null;
+let projectGalleryCleanup = null;
 let sectionVisibilityObserver = null;
 let sectionNavigationCleanup = null;
 
@@ -1401,6 +1527,133 @@ function initSwiper() {
   return projectSwiper;
 }
 
+function initProjectGallery() {
+  projectGalleryCleanup?.();
+  const slides = Array.from(document.querySelectorAll(".work-showcase .work-slide"));
+  const pad = (number) => String(number).padStart(2, "0");
+  const thumbnailSource = (source) => {
+    const url = new URL(source, document.baseURI);
+    if (url.hostname === "images.unsplash.com") {
+      url.searchParams.set("w", "320");
+      url.searchParams.set("q", "70");
+    } else if (url.hostname === "images.pexels.com") {
+      url.searchParams.set("w", "320");
+    }
+    return url.href;
+  };
+
+  const cleanups = slides.map((slide) => {
+    const mainImage = slide.querySelector(".work-slide__media img");
+    const gallery = slide.querySelector(".work-slide__gallery");
+    const grid = slide.querySelector(".work-slide__thumb-grid");
+    const counter = slide.querySelector(".work-slide__gallery-cue span");
+    if (!mainImage || !gallery || !grid) return () => {};
+
+    const coverSrc = mainImage.getAttribute("src");
+    const coverAlt = mainImage.alt;
+    const items = [mainImage, ...gallery.content.querySelectorAll("img")]
+      .filter((image) => image.getAttribute("src"))
+      .slice(0, 5)
+      .map((image) => ({ src: image.src, alt: image.alt || "Project image" }));
+    let shownIndex = 0;
+    let requestToken = 0;
+    const buttons = items.map((item, index) => {
+      const button = document.createElement("button");
+      const image = document.createElement("img");
+      button.type = "button";
+      button.className = "work-slide__thumb swiper-no-swiping";
+      button.setAttribute("aria-label", `Show image ${index + 1} of ${items.length}: ${item.alt}`);
+      button.setAttribute("aria-pressed", "false");
+      image.src = thumbnailSource(item.src);
+      image.alt = "";
+      image.loading = "lazy";
+      image.decoding = "async";
+      button.appendChild(image);
+      return button;
+    });
+    grid.replaceChildren(...buttons);
+
+    const markActive = (index) => {
+      buttons.forEach((button, buttonIndex) => {
+        button.setAttribute("aria-pressed", String(buttonIndex === index));
+      });
+      if (counter) counter.textContent = `${pad(index + 1)} / ${pad(items.length)}`;
+    };
+
+    const selectImage = (index) => {
+      const item = items[index];
+      if (!item) return;
+      const token = ++requestToken;
+      markActive(index);
+      if (index === shownIndex) {
+        mainImage.classList.remove("is-switching");
+        return;
+      }
+
+      mainImage.classList.add("is-switching");
+      const nextImage = new Image();
+      nextImage.onload = async () => {
+        try {
+          await nextImage.decode?.();
+        } catch (_) {
+          // A decoded preload is an enhancement; still display a loaded image.
+        }
+        if (token !== requestToken || !mainImage.isConnected) return;
+        mainImage.src = item.src;
+        mainImage.alt = item.alt;
+        shownIndex = index;
+        window.requestAnimationFrame(() => {
+          if (token === requestToken) mainImage.classList.remove("is-switching");
+        });
+      };
+      nextImage.onerror = () => {
+        if (token !== requestToken) return;
+        markActive(shownIndex);
+        mainImage.classList.remove("is-switching");
+      };
+      nextImage.src = item.src;
+    };
+
+    markActive(0);
+    const removeClicks = buttons.map((button, index) => {
+      const onClick = () => selectImage(index);
+      button.addEventListener("click", onClick);
+      return () => button.removeEventListener("click", onClick);
+    });
+    const onKeyDown = (event) => {
+      const current = buttons.indexOf(document.activeElement);
+      if (current < 0) return;
+      const next = {
+        ArrowRight: Math.min(current + 1, buttons.length - 1),
+        ArrowLeft: Math.max(current - 1, 0),
+        Home: 0,
+        End: buttons.length - 1,
+      }[event.key];
+      if (next == null) return;
+      event.preventDefault();
+      event.stopPropagation();
+      buttons[next].focus();
+      selectImage(next);
+    };
+    grid.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      requestToken += 1;
+      grid.removeEventListener("keydown", onKeyDown);
+      removeClicks.forEach((remove) => remove());
+      grid.replaceChildren();
+      mainImage.classList.remove("is-switching");
+      mainImage.setAttribute("src", coverSrc);
+      mainImage.alt = coverAlt;
+    };
+  });
+
+  projectGalleryCleanup = () => {
+    cleanups.forEach((cleanup) => cleanup());
+    projectGalleryCleanup = null;
+  };
+}
+
 function initSectionNavigation() {
   const sections = [
     { id: "top", element: document.querySelector(".page-home"), link: document.querySelector('.site-nav__link[href="#top"]') },
@@ -1472,6 +1725,7 @@ function initSectionNavigation() {
 }
 
 function destroyProjects() {
+  projectGalleryCleanup?.();
   sectionNavigationCleanup?.();
   sectionNavigationCleanup = null;
   sectionVisibilityObserver?.disconnect();
@@ -1496,7 +1750,9 @@ document.addEventListener("DOMContentLoaded", () => {
   init();
   Promise.resolve(window.siteComponentsReady)
     .then(() => {
+      globeRuntime.invalidateLayout?.();
       initSwiper();
+      initProjectGallery();
       initSectionNavigation();
       refreshMotion();
     })
@@ -1525,6 +1781,7 @@ window.addEventListener("pageshow", (event) => {
     initMotion();
     startHomeExperience();
     initSwiper();
+    initProjectGallery();
     initSectionNavigation();
   }
 });
