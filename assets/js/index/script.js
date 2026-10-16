@@ -1530,7 +1530,7 @@ function initSwiper() {
 function initProjectGallery() {
   projectGalleryCleanup?.();
   const slides = Array.from(document.querySelectorAll(".work-showcase .work-slide"));
-  const pad = (number) => String(number).padStart(2, "0");
+  if (!slides.length) return;
   const thumbnailSource = (source) => {
     const url = new URL(source, document.baseURI);
     if (url.hostname === "images.unsplash.com") {
@@ -1542,114 +1542,203 @@ function initProjectGallery() {
     return url.href;
   };
 
-  const cleanups = slides.map((slide) => {
-    const mainImage = slide.querySelector(".work-slide__media img");
-    const gallery = slide.querySelector(".work-slide__gallery");
-    const grid = slide.querySelector(".work-slide__thumb-grid");
-    const counter = slide.querySelector(".work-slide__gallery-cue span");
-    if (!mainImage || !gallery || !grid) return () => {};
-
-    const coverSrc = mainImage.getAttribute("src");
-    const coverAlt = mainImage.alt;
-    const items = [mainImage, ...gallery.content.querySelectorAll("img")]
+  const galleries = slides.map((slide) => ({
+    trigger: slide.querySelector(".work-slide__media"),
+    title: slide.querySelector(".work-slide__copy h3")?.textContent?.trim() || "Project gallery",
+    items: Array.from(slide.querySelector(".work-slide__gallery")?.content.querySelectorAll("img") || [])
       .filter((image) => image.getAttribute("src"))
       .slice(0, 5)
-      .map((image) => ({ src: image.src, alt: image.alt || "Project image" }));
-    let shownIndex = 0;
-    let requestToken = 0;
-    const buttons = items.map((item, index) => {
-      const button = document.createElement("button");
-      const image = document.createElement("img");
-      button.type = "button";
-      button.className = "work-slide__thumb swiper-no-swiping";
-      button.setAttribute("aria-label", `Show image ${index + 1} of ${items.length}: ${item.alt}`);
-      button.setAttribute("aria-pressed", "false");
-      image.src = thumbnailSource(item.src);
-      image.alt = "";
-      image.loading = "lazy";
-      image.decoding = "async";
-      button.appendChild(image);
-      return button;
+      .map((image) => ({ src: image.src, alt: image.alt || "Project image" })),
+  })).filter((gallery) => gallery.trigger && gallery.items.length);
+
+  const modal = document.createElement("div");
+  modal.className = "project-gallery-modal";
+  modal.hidden = true;
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+  modal.setAttribute("aria-labelledby", "project-gallery-modal-title");
+  modal.innerHTML = `
+    <div class="project-gallery-modal__panel">
+      <header class="project-gallery-modal__header">
+        <div><span class="project-gallery-modal__eyebrow">PROJECT GALLERY</span><h2 id="project-gallery-modal-title"></h2></div>
+        <button class="project-gallery-modal__close" type="button" aria-label="Close gallery"><span aria-hidden="true">×</span></button>
+      </header>
+      <div class="project-gallery-modal__stage">
+        <div class="project-gallery-modal__frame"><img alt="" decoding="async" /></div>
+      </div>
+      <div class="project-gallery-modal__footer">
+        <div class="project-gallery-modal__thumb-grid" role="group" aria-label="Gallery thumbnails"></div>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+
+  const title = modal.querySelector("#project-gallery-modal-title");
+  const mainImage = modal.querySelector(".project-gallery-modal__frame img");
+  const thumbGrid = modal.querySelector(".project-gallery-modal__thumb-grid");
+  const closeButton = modal.querySelector(".project-gallery-modal__close");
+  const stage = modal.querySelector(".project-gallery-modal__stage");
+  let currentItems = [];
+  let currentIndex = 0;
+  let shownIndex = 0;
+  let requestToken = 0;
+  let activeTrigger = null;
+  let lenisWasStopped = false;
+  let swiperKeyboardWasEnabled = false;
+  let touchStartX = null;
+
+  const markActive = (index) => {
+    currentIndex = index;
+    thumbGrid.querySelectorAll("button").forEach((button, buttonIndex) => {
+      button.setAttribute("aria-pressed", String(buttonIndex === index));
     });
-    grid.replaceChildren(...buttons);
+  };
 
-    const markActive = (index) => {
-      buttons.forEach((button, buttonIndex) => {
-        button.setAttribute("aria-pressed", String(buttonIndex === index));
-      });
-      if (counter) counter.textContent = `${pad(index + 1)} / ${pad(items.length)}`;
-    };
-
-    const selectImage = (index) => {
-      const item = items[index];
-      if (!item) return;
-      const token = ++requestToken;
-      markActive(index);
-      if (index === shownIndex) {
-        mainImage.classList.remove("is-switching");
-        return;
-      }
-
-      mainImage.classList.add("is-switching");
-      const nextImage = new Image();
-      nextImage.onload = async () => {
-        try {
-          await nextImage.decode?.();
-        } catch (_) {
-          // A decoded preload is an enhancement; still display a loaded image.
-        }
-        if (token !== requestToken || !mainImage.isConnected) return;
-        mainImage.src = item.src;
-        mainImage.alt = item.alt;
-        shownIndex = index;
-        window.requestAnimationFrame(() => {
-          if (token === requestToken) mainImage.classList.remove("is-switching");
-        });
-      };
-      nextImage.onerror = () => {
-        if (token !== requestToken) return;
-        markActive(shownIndex);
-        mainImage.classList.remove("is-switching");
-      };
-      nextImage.src = item.src;
-    };
-
-    markActive(0);
-    const removeClicks = buttons.map((button, index) => {
-      const onClick = () => selectImage(index);
-      button.addEventListener("click", onClick);
-      return () => button.removeEventListener("click", onClick);
-    });
-    const onKeyDown = (event) => {
-      const current = buttons.indexOf(document.activeElement);
-      if (current < 0) return;
-      const next = {
-        ArrowRight: Math.min(current + 1, buttons.length - 1),
-        ArrowLeft: Math.max(current - 1, 0),
-        Home: 0,
-        End: buttons.length - 1,
-      }[event.key];
-      if (next == null) return;
-      event.preventDefault();
-      event.stopPropagation();
-      buttons[next].focus();
-      selectImage(next);
-    };
-    grid.addEventListener("keydown", onKeyDown);
-
-    return () => {
+  const selectImage = (index) => {
+    const item = currentItems[index];
+    if (!item) return;
+    if (index === shownIndex) {
       requestToken += 1;
-      grid.removeEventListener("keydown", onKeyDown);
-      removeClicks.forEach((remove) => remove());
-      grid.replaceChildren();
+      markActive(index);
       mainImage.classList.remove("is-switching");
-      mainImage.setAttribute("src", coverSrc);
-      mainImage.alt = coverAlt;
+      return;
+    }
+    const token = ++requestToken;
+    markActive(index);
+    mainImage.classList.add("is-switching");
+    const nextImage = new Image();
+    nextImage.onload = async () => {
+      try {
+        await nextImage.decode?.();
+      } catch (_) {
+        // The loaded image remains usable if decoding is unavailable.
+      }
+      if (token !== requestToken || modal.hidden) return;
+      mainImage.src = item.src;
+      mainImage.alt = item.alt;
+      shownIndex = index;
+      window.requestAnimationFrame(() => {
+        if (token === requestToken) mainImage.classList.remove("is-switching");
+      });
     };
+    nextImage.onerror = () => {
+      if (token !== requestToken) return;
+      markActive(shownIndex);
+      mainImage.classList.remove("is-switching");
+    };
+    nextImage.src = item.src;
+  };
+
+  const stepImage = (step) => {
+    if (currentItems.length < 2) return;
+    selectImage((currentIndex + step + currentItems.length) % currentItems.length);
+  };
+
+  const closeModal = (restoreFocus = true) => {
+    if (modal.hidden) return;
+    requestToken += 1;
+    modal.hidden = true;
+    document.documentElement.classList.remove("gallery-open");
+    document.documentElement.style.removeProperty("--gallery-scrollbar-width");
+    if (runtime.lenis && !lenisWasStopped) runtime.lenis.start();
+    if (swiperKeyboardWasEnabled) projectSwiper?.keyboard?.enable();
+    if (restoreFocus && activeTrigger?.isConnected) activeTrigger.focus({ preventScroll: true });
+    activeTrigger = null;
+  };
+
+  const openModal = (gallery) => {
+    if (!modal.hidden) closeModal(false);
+    currentItems = gallery.items;
+    activeTrigger = gallery.trigger;
+    title.textContent = gallery.title;
+    thumbGrid.replaceChildren();
+
+    currentItems.forEach((item, index) => {
+      const thumb = document.createElement("button");
+      const thumbImage = document.createElement("img");
+      thumb.type = "button";
+      thumb.className = "project-gallery-modal__thumb";
+      thumb.setAttribute("aria-label", `Show image ${index + 1} of ${currentItems.length}: ${item.alt}`);
+      thumbImage.src = thumbnailSource(item.src);
+      thumbImage.alt = "";
+      thumbImage.loading = "lazy";
+      thumbImage.decoding = "async";
+      thumb.appendChild(thumbImage);
+      thumb.addEventListener("click", () => selectImage(index));
+      thumbGrid.appendChild(thumb);
+
+    });
+
+    mainImage.src = currentItems[0].src;
+    mainImage.alt = currentItems[0].alt;
+    mainImage.classList.remove("is-switching");
+    shownIndex = 0;
+    markActive(0);
+
+    const scrollbarWidth = Math.max(0, window.innerWidth - document.documentElement.clientWidth);
+    document.documentElement.style.setProperty("--gallery-scrollbar-width", `${scrollbarWidth}px`);
+    document.documentElement.classList.add("gallery-open");
+    lenisWasStopped = Boolean(runtime.lenis?.isStopped);
+    runtime.lenis?.stop();
+    swiperKeyboardWasEnabled = Boolean(projectSwiper?.keyboard?.enabled);
+    if (swiperKeyboardWasEnabled) projectSwiper.keyboard.disable();
+    modal.hidden = false;
+    closeButton.focus({ preventScroll: true });
+  };
+
+  const triggerCleanups = galleries.map((gallery) => {
+    const onClick = () => {
+      if (projectSwiper && !projectSwiper.allowClick) return;
+      openModal(gallery);
+    };
+    gallery.trigger.addEventListener("click", onClick);
+    return () => gallery.trigger.removeEventListener("click", onClick);
   });
+  const onModalClick = (event) => {
+    if (event.target === modal) closeModal();
+  };
+  const onCloseClick = () => closeModal();
+  const onKeyDown = (event) => {
+    if (modal.hidden) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeModal();
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      stepImage(event.key === "ArrowLeft" ? -1 : 1);
+    } else if (event.key === "Tab") {
+      const focusable = Array.from(modal.querySelectorAll("button:not([hidden])"));
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+  };
+  const onTouchStart = (event) => {
+    touchStartX = event.touches.length === 1 ? event.touches[0].clientX : null;
+  };
+  const onTouchEnd = (event) => {
+    if (touchStartX == null || !event.changedTouches.length) return;
+    const deltaX = event.changedTouches[0].clientX - touchStartX;
+    touchStartX = null;
+    if (Math.abs(deltaX) > 45) stepImage(deltaX < 0 ? 1 : -1);
+  };
+
+  modal.addEventListener("click", onModalClick);
+  closeButton.addEventListener("click", onCloseClick);
+  stage.addEventListener("touchstart", onTouchStart, { passive: true });
+  stage.addEventListener("touchend", onTouchEnd, { passive: true });
+  document.addEventListener("keydown", onKeyDown);
 
   projectGalleryCleanup = () => {
-    cleanups.forEach((cleanup) => cleanup());
+    closeModal(false);
+    triggerCleanups.forEach((cleanup) => cleanup());
+    document.removeEventListener("keydown", onKeyDown);
+    modal.remove();
     projectGalleryCleanup = null;
   };
 }
