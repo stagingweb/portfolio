@@ -1505,7 +1505,7 @@ function initSwiper() {
   }
 
   projectSwiper = initParallaxSwiper(swiperEl, {
-    interleaveOffset: 0.25,
+    interleaveOffset: 0.12,
     spaceBetween: 24,
     breakpoints: {
       769: { spaceBetween: 50 },

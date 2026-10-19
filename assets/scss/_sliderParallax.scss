@@ -262,6 +262,12 @@
   font: 300 36px/1 Arial, sans-serif;
 }
 
+@media (hover: hover) {
+  .work-slide__media-overlay > span:last-child {
+    display: none;
+  }
+}
+
 @media (hover: none) {
   .work-slide__media-overlay {
     align-items: flex-end;
