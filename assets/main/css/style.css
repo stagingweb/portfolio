@@ -1,3 +1,4 @@
+@charset "UTF-8";
 :root {
   --font-display: "Bebas Neue", Impact, sans-serif;
   --font-heading: var(--font-display);
@@ -1390,10 +1391,14 @@ html.motion-pending .site-footer {
   }
   .site-nav__link {
     min-height: 26px;
+    font-size: 14px;
   }
   .footer-social {
     grid-column: 1;
     align-items: flex-start;
+  }
+  .footer-social a {
+    font-size: 14px;
   }
   .footer-copyright {
     grid-column: 2;
@@ -1407,6 +1412,9 @@ html.motion-pending .site-footer {
   }
   .hero-title__line--script {
     font-size: clamp(120px, 106.154px + 3.8462vw, 180px);
+  }
+  .hero-title__script-svg {
+    top: 0;
   }
   .hero-title__line--display {
     font-size: clamp(80px, 70.7692px + 2.5641vw, 120px);
@@ -2496,8 +2504,30 @@ body.is-services-visible .header-skills {
   }
   .work-showcase .swiper-button-prev,
   .work-showcase .swiper-button-next {
-    padding: 0 10px;
-    font-size: 10px;
+    width: 38px;
+    min-width: 38px;
+    padding: 0;
+    font-size: 0;
+  }
+  .work-showcase .swiper-button-prev::before,
+  .work-showcase .swiper-button-next::before {
+    display: block;
+    font: 400 26px/1 Arial, sans-serif;
+  }
+  .work-showcase .swiper-button-prev::before {
+    content: "‹";
+  }
+  .work-showcase .swiper-button-next::before {
+    content: "›";
+  }
+  .work-slide__media-overlay {
+    display: none;
+  }
+  .services-offerings > .services-block-heading {
+    background: transparent;
+  }
+  .services-block-heading h3 {
+    font-size: clamp(18px, 3.8vw, 22px);
   }
   .work-showcase .swiper-pagination {
     gap: 6px;

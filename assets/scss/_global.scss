@@ -555,11 +555,16 @@ html.motion-pending .site-footer {
 
   .site-nav__link {
     min-height: 26px;
+    font-size: 14px;
   }
 
   .footer-social {
     grid-column: 1;
     align-items: flex-start;
+  }
+
+  .footer-social a {
+    font-size: 14px;
   }
 
   .footer-copyright {
@@ -576,6 +581,10 @@ html.motion-pending .site-footer {
 
   .hero-title__line--script {
     font-size: clamp(120px, calc(106.154px + 3.8462vw), 180px);
+  }
+
+  .hero-title__script-svg {
+    top: 0;
   }
 
   .hero-title__line--display {
